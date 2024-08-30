@@ -24,10 +24,10 @@ android {
         applicationId = "com.example.inksighttt"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 21
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        minSdkVersion 21
+        targetSdkVersion 33 // Update this to your target SDK version
+        versionCode 1 // Increment this for each release to the Play Store
+        versionName "1.0" // Update this for each release to indicate the version
     }
 
     buildTypes {

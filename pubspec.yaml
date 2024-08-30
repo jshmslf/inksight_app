@@ -28,8 +28,12 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
-  url_launcher: ^6.0.9
-  qr_code_scanner: ^1.0.0
+  path_provider: ^2.0.11
+  url_launcher: ^6.3.0
+  qr_code_scanner: ^1.0.1
+  mobile_scanner: ^5.2.1
+  image: 4.2.0
+  
   flutter:
     sdk: flutter
   
@@ -40,6 +44,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   camera: ^0.11.0+2
   gal: ^2.3.0
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_launcher_icons: ^0.13.1
@@ -92,6 +97,8 @@ flutter:
     - assets/img/Flash-on.png
     - assets/img/Image.png
     - assets/img/userIcon.png
+    - assets/img/InkSight-textLogo.png
+    - assets/img/captureButton.png
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

@@ -1,9 +1,12 @@
+import 'dart:io'; // Import this for File operations
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:inksight/constants/colors.dart';
-import 'package:qr_code_scanner/qr_code_scanner.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -15,17 +18,12 @@ class CameraScreen extends StatefulWidget {
 class _CameraScreenState extends State<CameraScreen> {
   List<CameraDescription> cameras = [];
   CameraController? cameraController;
-  QRViewController? qrController;
   bool isFlashOn = false;
   String selectedButton = 'Handwritten Analyzer';
-  String? qrCodeLink;
-  bool isScanning = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _setupCameraController();
-  }
+  final MobileScannerController scannerController = MobileScannerController();
+  String result = "";
+  XFile? selectedImage; // Variable to store the selected image
+  bool isPhotoMode = false; // State variable to toggle between camera and photo
 
   @override
   Widget build(BuildContext context) {
@@ -35,352 +33,393 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Widget _buildUI() {
-    if (cameraController == null ||
-        cameraController?.value.isInitialized == false) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
-    }
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
 
-    final aspectRatio = cameraController?.value.aspectRatio ?? 1;
+    if (!isPhotoMode) {
+      if (cameraController == null || !cameraController!.value.isInitialized) {
+        return const Center(
+          child: CircularProgressIndicator(),
+        );
+      }
 
-    return SafeArea(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            margin: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text.rich(
-                  TextSpan(
-                    style: TextStyle(
-                      fontFamily: 'Futura',
-                      fontSize: 40,
-                      shadows: [
-                        Shadow(
-                          offset: Offset(0, 2),
-                          blurRadius: 3,
-                          color: Color.fromARGB(68, 0, 0, 0),
-                        ),
-                      ],
-                    ),
-                    children: [
-                      TextSpan(
-                        text: 'Ink',
-                        style: TextStyle(color: Color(0xFF00B4D8)),
-                      ),
-                      TextSpan(
-                        text: 'Sight',
-                        style: TextStyle(color: Color(0xFF03045E)),
-                      ),
-                    ],
-                  ),
+      final aspectRatio = cameraController?.value.aspectRatio ?? 1;
+
+      return SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // HEADER
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  vertical: screenHeight * 0.01,
                 ),
-                Image.asset(
-                  'assets/img/userIcon.png',
-                  height: 50,
-                )
-              ],
-            ),
-          ),
-
-          // Camera Preview or QR View
-          Container(
-            height: MediaQuery.sizeOf(context).height * 0.60,
-            width: MediaQuery.sizeOf(context).width * 0.90,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // Camera Preview
-                  AspectRatio(
-                    aspectRatio: aspectRatio,
-                    child: CameraPreview(cameraController!),
-                  ),
-                  // QR Code Scanner overlay
-                  if (selectedButton == 'QR Code')
-                    Positioned.fill(
-                      child: QRView(
-                        key: UniqueKey(),
-                        onQRViewCreated: _onQRViewCreated,
-                        overlay: QrScannerOverlayShape(
-                          borderColor: Colors.red,
-                          borderRadius: 10,
-                          borderLength: 30,
-                          borderWidth: 10,
-                          cutOutSize: 300,
-                        ),
-                      ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Image.asset(
+                      'assets/img/InkSight-textLogo.png',
+                      height: screenHeight * 0.04,
                     ),
-                ],
+                    Image.asset(
+                      'assets/img/userIcon.png',
+                      height: screenHeight * 0.05,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
 
-          // Text Button
-          const SizedBox(height: 20),
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.all(5),
-            height: 50,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0F0F0),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  offset: const Offset(0, 2),
+            // Camera Preview
+            Expanded(
+              child: Container(
+                width: screenWidth * 0.9,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (selectedButton == 'QR Code')
+                      MobileScanner(
+                        controller: scannerController,
+                        onDetect: (capture) {
+                          final List<Barcode> barcodes = capture.barcodes;
+                          if (barcodes.isNotEmpty) {
+                            final barcode = barcodes.first;
+                            if (barcode.rawValue != null) {
+                              final String code = barcode.rawValue!;
+                              // Pause scanning
+                              scannerController.stop();
+                              // Show dialog and resume scanning after dialog is dismissed
+                              _showQrCodeDialog(code).then((_) {
+                                scannerController.start();
+                              });
+                            }
+                          }
+                        },
+                        fit: BoxFit.cover,
+                      )
+                    else if (cameraController != null &&
+                        cameraController!.value.isInitialized)
+                      AspectRatio(
+                        aspectRatio: aspectRatio,
+                        child: CameraPreview(cameraController!),
+                      ),
+                  ],
                 ),
-              ],
+              ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildTextButton('Handwritten Analyzer'),
-                _buildTextButton('Document'),
-                _buildTextButton('Photo'),
-                _buildTextButton('QR Code'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
 
-          // Buttons Below
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.all(16),
-            height: 90,
-            decoration: BoxDecoration(
-                color: mainBlue,
-                borderRadius: BorderRadius.circular(12),
+            // Text Button
+            const SizedBox(height: 30),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(5),
+              height: 50,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F0F0),
+                borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    offset: const Offset(0, 5),
-                    spreadRadius: 0,
-                  )
-                ]),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                IconButton(
-                  icon: Image.asset(
-                    'assets/img/Image.png',
-                    height: 50,
-                  ),
-                  onPressed: () async {},
-                ),
-                CaptureButton(
-                  onPressed: () {
-                    _captureButtonPressed();
-                  },
-                ),
-                IconButton(
-                  icon: Image.asset(
-                    isFlashOn
-                        ? 'assets/img/Flash-on.png'
-                        : 'assets/img/Flash-Off.png',
-                    height: 50,
-                    fit: BoxFit.contain,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _toggleFlash();
-                    });
-                  },
-                )
-              ],
-            ),
-          ),
-          const SizedBox(height: 5),
-        ],
-      ),
-    );
-  }
-
-  void _onQRViewCreated(QRViewController controller) {
-    qrController = controller;
-    qrController?.scannedDataStream.listen((scanData) {
-      if (scanData.code != null && scanData.code!.isNotEmpty) {
-        setState(() {
-          qrCodeLink = scanData.code;
-        });
-        controller.dispose();
-        _showQRDialog();
-      }
-    });
-  }
-
-  void _captureButtonPressed() {
-    if (selectedButton == 'QR Code') {
-      if (qrCodeLink != null) {
-        _showQRDialog();
-      } else {
-        _showNoQRCodeDialog();
-      }
-    } else {
-      // Handle other button presses
-    }
-  }
-
-  void _showNoQRCodeDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12), // Custom border radius
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'No QR Code Detected',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'SFDisplay', // Replace with your font family
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Please scan a QR code to proceed.',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontFamily: 'SFDisplay', // Replace with your font family
-                  color: Colors.grey[800],
-                ),
-              ),
-              const SizedBox(height: 20),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  child: Text(
-                    'OK',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontFamily: 'SFDisplay', // Replace with your font family
-                      color: Colors.blue,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showQRDialog() {
-    if (qrCodeLink == null) {
-      // If no QR code link is detected, show the "No QR Code Detected" dialog
-      _showNoQRCodeDialog();
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12), // Custom border radius
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'QR Code Detected',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'SFDisplay', // Replace with your font family
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                qrCodeLink!,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontFamily: 'YourFontFamily', // Replace with your font family
-                  color: Colors.grey[800],
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      // Copy the link to the clipboard
-                      Clipboard.setData(ClipboardData(text: qrCodeLink!));
-                    },
-                    child: Text(
-                      'Copy Link',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontFamily:
-                            'SFDisplay', // Replace with your font family
-                        color: Colors.blue,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      // Open the link in the browser
-                      launchUrl(Uri.parse(qrCodeLink!));
-                    },
-                    child: Text(
-                      'Open in Browser',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontFamily:
-                            'YourFontFamily', // Replace with your font family
-                        color: Colors.blue,
-                      ),
-                    ),
+                    color: Colors.black.withOpacity(0.2),
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
-            ],
-          ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildTextButton('Handwritten Analyzer'),
+                  _buildTextButton('Document'),
+                  _buildTextButton('Photo'),
+                  _buildTextButton('QR Code'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Buttons Below
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              height: 70,
+              decoration: BoxDecoration(
+                  color: mainBlue,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      offset: const Offset(0, 5),
+                      spreadRadius: 0,
+                    )
+                  ]),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Image Icon
+                  IconButton(
+                    icon: Image.asset(
+                      'assets/img/Image.png',
+                      height: 35,
+                    ),
+                    onPressed: () async {
+                      final ImagePicker picker = ImagePicker();
+                      final XFile? pickedFile =
+                          await picker.pickImage(source: ImageSource.gallery);
+                      if (pickedFile != null) {
+                        setState(() {
+                          selectedImage = pickedFile;
+                          isPhotoMode = true; // Switch to photo mode
+                        });
+                      }
+                    },
+                  ),
+                  // Capture Icon
+                  IconButton(
+                    icon: Image.asset(
+                      'assets/img/captureButton.png',
+                      height: 90,
+                    ),
+                    onPressed: () async {},
+                  ),
+                  // Flash Icon
+                  IconButton(
+                    icon: Image.asset(
+                      isFlashOn
+                          ? 'assets/img/Flash-on.png'
+                          : 'assets/img/Flash-Off.png',
+                      height: 35,
+                      fit: BoxFit.contain,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _toggleFlash();
+                      });
+                    },
+                  )
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
         ),
-      ),
-    );
+      );
+    } else {
+      // Photo Mode
+      File imageFile = File(selectedImage!.path);
+      img.Image image = img.decodeImage(imageFile.readAsBytesSync())!;
+      double aspectRatio = image.width / image.height;
+
+      return SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // HEADER with Back Button
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  vertical: screenHeight * 0.01,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.arrow_back, color: mainBlue),
+                      onPressed: () {
+                        setState(() {
+                          isPhotoMode = false; // Switch back to camera mode
+                          selectedImage = null; // Clear the selected image
+                        });
+                      },
+                    ),
+                    Image.asset(
+                      'assets/img/InkSight-textLogo.png',
+                      height: screenHeight * 0.04,
+                    ),
+                    Image.asset(
+                      'assets/img/userIcon.png',
+                      height: screenHeight * 0.05,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Selected Image
+            Expanded(
+              child: Container(
+                width: screenWidth * 0.9,
+                child: AspectRatio(
+                  aspectRatio: aspectRatio,
+                  child: Image.file(imageFile, fit: BoxFit.cover),
+                ),
+              ),
+            ),
+
+            // Text Button
+            const SizedBox(height: 30),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(5),
+              height: 50,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F0F0),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildTextButton('Handwritten Analyzer'),
+                  _buildTextButton('Document'),
+                  _buildTextButton('Photo'),
+                  _buildTextButton('QR Code'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Buttons Below
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              height: 70,
+              decoration: BoxDecoration(
+                  color: mainBlue,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      offset: const Offset(0, 5),
+                      spreadRadius: 0,
+                    )
+                  ]),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Image Icon
+                  IconButton(
+                    icon: Image.asset(
+                      'assets/img/Image.png',
+                      height: 35,
+                    ),
+                    onPressed: () async {
+                      final ImagePicker picker = ImagePicker();
+                      final XFile? pickedFile =
+                          await picker.pickImage(source: ImageSource.gallery);
+                      if (pickedFile != null) {
+                        setState(() {
+                          selectedImage = pickedFile;
+                        });
+                      }
+                    },
+                  ),
+                  // Capture Icon
+                  IconButton(
+                    icon: Image.asset(
+                      'assets/img/captureButton.png',
+                      height: 90,
+                    ),
+                    onPressed: () async {},
+                  ),
+                  // Flash Icon
+                  IconButton(
+                    icon: Image.asset(
+                      isFlashOn
+                          ? 'assets/img/Flash-on.png'
+                          : 'assets/img/Flash-Off.png',
+                      height: 35,
+                      fit: BoxFit.contain,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _toggleFlash();
+                      });
+                    },
+                  )
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      );
+    }
   }
 
-  void _showInvalidLinkDialog() {
-    showDialog(
+  Future<void> _showQrCodeDialog(String code) {
+    return showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Invalid Link'),
-        content:
-            const Text('The scanned QR code does not contain a valid URL.'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('OK'),
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.0),
           ),
-        ],
-      ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'QR Code Detected',
+                  style: TextStyle(
+                    fontFamily: 'SFDisplay',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  code,
+                  style: TextStyle(
+                    fontFamily: 'SFDisplay',
+                    fontSize: 16,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: code));
+                        Navigator.of(context).pop();
+                      },
+                      child: Text(
+                        'Copy',
+                        style: TextStyle(
+                          fontFamily: 'SFDisplay',
+                          color: mainBlue,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        _launchInBrowser(code);
+                        Navigator.of(context).pop();
+                      },
+                      child: Text(
+                        'Open in Browser',
+                        style: TextStyle(
+                          fontFamily: 'SFDisplay',
+                          color: mainBlue,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -403,19 +442,41 @@ class _CameraScreenState extends State<CameraScreen> {
     );
   }
 
+  @override
+  void dispose() {
+    // Reset the system UI when the widget is disposed
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+        overlays: SystemUiOverlay.values);
+    cameraController?.dispose();
+    scannerController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _setupCameraController().then((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  void _launchInBrowser(String string) async {
+    await launchUrl(Uri.parse(string));
+  }
+
   Future<void> _setupCameraController() async {
     List<CameraDescription> _cameras = await availableCameras();
     if (_cameras.isNotEmpty) {
-      setState(() {
-        cameras = _cameras;
-        cameraController = CameraController(
-          _cameras.first,
-          ResolutionPreset.high,
-        );
-      });
-      cameraController?.initialize().then((_) {
+      cameraController = CameraController(
+        _cameras.first,
+        ResolutionPreset.high,
+      );
+      await cameraController?.initialize();
+      if (mounted) {
         setState(() {});
-      });
+      }
     }
   }
 
@@ -427,44 +488,5 @@ class _CameraScreenState extends State<CameraScreen> {
             .setFlashMode(isFlashOn ? FlashMode.torch : FlashMode.off);
       });
     }
-  }
-}
-
-class CaptureButton extends StatelessWidget {
-  final VoidCallback onPressed;
-
-  const CaptureButton({Key? key, required this.onPressed}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Outer Circle (Border)
-          Container(
-            width: 70, // Size of the outer circle
-            height: 70, // Size of the outer circle
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white, // Outline color
-                width: 2.0, // Outline thickness
-              ),
-            ),
-          ),
-          // Inner Circle (Filled)
-          Container(
-            width: 50, // Size of the inner circle
-            height: 50, // Size of the inner circle
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white, // Fill color of the inner circle
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

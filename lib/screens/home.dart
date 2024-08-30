@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:inksight/constants/colors.dart';
 import 'package:inksight/screens/camera.dart';
+import 'package:inksight/screens/camera1.dart';
 
 class Home extends StatelessWidget {
   const Home({Key? key}) : super(key: key);
